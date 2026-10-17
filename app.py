@@ -4,6 +4,7 @@
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import os
@@ -21,6 +22,12 @@ devices.create_index([("mac", ASCENDING)], unique=True)
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+) # allows ui from laptop to access server. see tutorial 7 for details.
 
 class Device(BaseModel):
     mac: str
