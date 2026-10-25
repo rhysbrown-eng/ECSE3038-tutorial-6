@@ -3,7 +3,7 @@
 
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -15,8 +15,10 @@ from pymongo.errors import DuplicateKeyError
 load_dotenv()
 client = MongoClient(os.getenv("MONGODB_URI"), tz_aware=True)
 db = client["tutorial6"]
+
 devices = db["devices"]
 readings = db["readings"]
+settings = db["settings"]
 
 devices.create_index([("mac", ASCENDING)], unique=True)
 
@@ -34,16 +36,18 @@ class Device(BaseModel):
     name: str | None = None
     room: str | None = None
 
-
 class Reading(BaseModel):
     mac: str
     temp: float
 
+class Settings(BaseModel):
+    temp_limit: float
 
+
+# DEVICE ENDPOINTS
 @app.get("/devices")
 def get_devices():
     return list(devices.find({}, {"_id": 0}))
-
 
 @app.get("/devices/{mac}")
 def get_device(mac: str):
@@ -53,7 +57,6 @@ def get_device(mac: str):
         raise HTTPException(status_code=404, detail="It nuh deh deh. hush.")
 
     return device
-
 
 @app.post("/devices", status_code=201)
 def create_device(device: Device):
@@ -66,6 +69,7 @@ def create_device(device: Device):
     return new_device
 
 
+# READINGS ENDPOINTS
 @app.post("/readings", status_code=201)
 def create_reading(reading: Reading):
     if devices.find_one({"mac": reading.mac}) is None:
@@ -76,7 +80,6 @@ def create_reading(reading: Reading):
     new_reading.pop("_id")
     return new_reading
 
-
 @app.get("/readings")
 def get_readings(mac: str | None = None, since: datetime | None = None, limit: int = 10):
     query = {}
@@ -85,7 +88,6 @@ def get_readings(mac: str | None = None, since: datetime | None = None, limit: i
     if since is not None:
         query["time"] = {"$gte": since}
     return list(readings.find(query, {"_id": 0}).sort("time", -1).limit(limit))
-
 
 @app.get("/readings/latest")
 def get_latest_reading(mac: str | None = None):
@@ -96,3 +98,22 @@ def get_latest_reading(mac: str | None = None):
     if reading is None:
         raise HTTPException(status_code=404, detail="No readings yet")
     return reading
+
+
+# SETTING ENDPOINTS
+@app.put("/settings/{mac}")
+def put_settings(mac: str, new: Settings, response: Response):
+    doc = new.model_dump()
+    doc["mac"] = mac
+    result = settings.replace_one({"mac": mac}, doc, upsert=True)
+    if result.upserted_id is not None:
+        response.status_code = 201
+    doc.pop("_id", None)
+    return doc
+
+@app.get("/settings/{mac}")
+def get_settings(mac: str):
+    doc = settings.find_one({"mac": mac}, {"_id": 0})
+    if doc is None:
+        raise HTTPException(status_code=404, detail="No settings for MAC " + mac)
+    return doc
